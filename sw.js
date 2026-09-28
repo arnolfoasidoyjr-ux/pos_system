@@ -1,10 +1,10 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// POS SERVICE WORKER — FULL OFFLINE PWA ENGINE (v17)
+// POS SERVICE WORKER — FULL OFFLINE PWA ENGINE (v19)
 // Caches complete application shell, UI, icons, scripts & assets so the POS
 // works seamlessly with 100% functionality even when offline/no-network.
 // ═══════════════════════════════════════════════════════════════════════════
 
-const SHELL = 'pos-shell-v18';
+const SHELL = 'pos-shell-v19';
 const IMGS = 'pos-img-v3';
 const IMG_LIMIT = 500;
 const BASE = new URL('./', self.location).href;
@@ -81,7 +81,8 @@ async function trimCache(cacheName, max) {
     } catch (e) {}
 }
 
-// Quick fetch with timeout to avoid freezing offline or on weak signal
+// Fetch with timeout — used for API calls and images only.
+// Navigation uses a much longer timeout (see below) to survive Render cold-start.
 async function fetchWithTimeout(request, timeoutMs = 3000) {
     const ctrl = new AbortController();
     const id = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -93,6 +94,59 @@ async function fetchWithTimeout(request, timeoutMs = 3000) {
         clearTimeout(id);
         throw err;
     }
+}
+
+// Minimal inline fallback page shown only when the server is unreachable AND
+// the app has never been cached yet (first ever visit while server is cold).
+// Automatically retries every 5 seconds so the user does not have to click.
+function buildSetupPage() {
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Connecting… — ProCast POS</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+     background:#0a1628;color:#f8fafc;display:flex;align-items:center;
+     justify-content:center;min-height:100vh;padding:20px;text-align:center}
+.box{background:#112240;padding:40px 28px;border-radius:18px;max-width:460px;
+     width:100%;border:1.5px solid rgba(255,255,255,.1);box-shadow:0 8px 40px rgba(0,0,0,.4)}
+.spinner{width:48px;height:48px;border:4px solid rgba(59,130,246,.2);
+         border-top-color:#3b82f6;border-radius:50%;margin:0 auto 22px;
+         animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+h1{font-size:1.25rem;margin-bottom:10px;color:#38bdf8}
+p{color:#94a3b8;font-size:.9rem;line-height:1.55;margin-bottom:6px}
+.sub{font-size:.78rem;color:#64748b;margin-bottom:28px}
+.btn{display:block;width:100%;padding:13px;border-radius:10px;font-weight:700;
+     font-size:.95rem;cursor:pointer;border:none;background:#2563eb;color:#fff;
+     transition:background .2s}
+.btn:hover{background:#1d4ed8}
+#cd{display:inline-block;width:1.6em;text-align:center;font-weight:800;color:#38bdf8}
+</style>
+</head>
+<body>
+<div class="box">
+  <div class="spinner"></div>
+  <h1>Waking Up the Server…</h1>
+  <p>The POS server is starting — this takes about 10–15 seconds on first load.</p>
+  <p class="sub">Retrying automatically in <span id="cd">5</span>s</p>
+  <button class="btn" onclick="reload()">Retry Now</button>
+</div>
+<script>
+function reload(){ location.reload(); }
+var n=5;
+var t=setInterval(function(){
+  n--;
+  var el=document.getElementById('cd');
+  if(el) el.textContent=n;
+  if(n<=0){ clearInterval(t); reload(); }
+},1000);
+</script>
+</body>
+</html>`;
 }
 
 self.addEventListener('fetch', e => {
@@ -140,52 +194,38 @@ self.addEventListener('fetch', e => {
         return;
     }
 
-    // ── APP HTML NAVIGATION: Network-first with quick 2.5s timeout, cached full SPA shell fallback ──
+    // ── APP HTML NAVIGATION ──
+    // Strategy: network-first with a 25 s timeout to survive Render cold-start
+    // (~10-15 s wake-up time on the free tier). If the network times out AND no
+    // cached version exists yet, show the auto-retrying "Waking up…" page instead
+    // of a dead-end error.
     if (req.mode === 'navigate') {
         e.respondWith((async () => {
             const shellCache = await caches.open(SHELL);
             try {
-                // Try live network request first with quick timeout
-                const resp = await fetchWithTimeout(req, 2500);
+                // 25 s — enough to survive a Render free-tier cold start
+                const resp = await fetchWithTimeout(req, 25000);
                 if (resp && resp.status === 200) {
                     await shellCache.put(APP_SHELL_KEY, resp.clone());
                     await shellCache.put(req, resp.clone());
                 }
                 return resp;
             } catch (err) {
-                // Offline / timeout: serve the full cached POS app shell!
+                // Network truly unreachable or timed out — try cache first
                 const cachedPage = await shellCache.match(req);
                 if (cachedPage) return cachedPage;
 
                 const cachedShell = await shellCache.match(APP_SHELL_KEY);
                 if (cachedShell) return cachedShell;
 
-                const cachedRoot = await shellCache.match(new URL('index.php', BASE).href) || await shellCache.match(new URL('./', BASE).href);
+                const cachedRoot = await shellCache.match(new URL('index.php', BASE).href)
+                    || await shellCache.match(new URL('./', BASE).href);
                 if (cachedRoot) return cachedRoot;
 
-                // Fallback minimal offline notice only if the app was NEVER opened once
-                return new Response(`<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Offline — ProCast</title>
-<style>
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0a1628;color:#f8fafc;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;text-align:center;}
-.box{background:#112240;padding:36px 24px;border-radius:16px;max-width:440px;width:100%;border:1.5px solid rgba(255,255,255,0.1);}
-h1{font-size:1.35rem;margin:0 0 10px;color:#38bdf8;}
-p{color:#94a3b8;font-size:0.92rem;line-height:1.5;margin-bottom:24px;}
-.btn{display:block;width:100%;padding:12px;border-radius:10px;font-weight:700;font-size:.95rem;cursor:pointer;border:none;background:#2563eb;color:#fff;}
-</style>
-</head>
-<body>
-<div class="box">
-<h1>Initial Setup Needed</h1>
-<p>Please connect to the internet or start your local server once so the POS can store its offline files on this device.</p>
-<button class="btn" onclick="location.reload()">Retry Connection</button>
-</div>
-</body>
-</html>`, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+                // Last resort: auto-retrying splash page (only hit if app was never cached)
+                return new Response(buildSetupPage(), {
+                    headers: { 'Content-Type': 'text/html; charset=utf-8' }
+                });
             }
         })());
         return;
@@ -220,4 +260,3 @@ self.addEventListener('sync', e => {
         );
     }
 });
-
