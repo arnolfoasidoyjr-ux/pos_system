@@ -84,7 +84,7 @@ function Get-TargetPrinterName {
     return "Xprinter XP-58"
 }
 
-# Helper to format a 2-column receipt line (e.g. "SUBTOTAL:" and "P25.00") with exact 32-character width
+# Helper to format a 2-column receipt line (e.g. "SUBTOTAL:" and "P25.00") with configurable width
 function Format-ReceiptLine {
     param([string]$Left, [string]$Right, [int]$Width = 32)
     $leftClean = if ($Left) { $Left.Trim() } else { "" }
@@ -94,10 +94,34 @@ function Format-ReceiptLine {
     return $leftClean + (' ' * $spaces) + $rightClean + "`n"
 }
 
+# Resolve layout constants from paper_size field ("58mm" = 32-col, "80mm" = 48-col)
+function Get-PaperLayout {
+    param([string]$PaperSize)
+    if ($PaperSize -eq '80mm') {
+        return @{
+            ColWidth  = 48
+            Divider   = "------------------------------------------------"
+            NameMax   = 24
+            ItemFmt   = "{0,-5} {1,-24} {2,8} {3,8}`n"  # QTY ITEM PRICE TOTAL
+        }
+    }
+    return @{
+        ColWidth  = 32
+        Divider   = "--------------------------------"
+        NameMax   = 16
+        ItemFmt   = "{0,-4} {1,-14} {2,6} {3,6}`n"
+    }
+}
+
 # Helper to build ESC/POS binary data for a receipt
 function Build-EscPosReceipt {
     param([PSCustomObject]$data)
-    
+
+    $layout   = Get-PaperLayout -PaperSize "$($data.paper_size)"
+    $colWidth = $layout.ColWidth
+    $div      = $layout.Divider + "`n"
+    $nameMax  = $layout.NameMax
+    $itemFmt  = $layout.ItemFmt
     $ms = New-Object System.IO.MemoryStream
     $bw = New-Object System.IO.BinaryWriter($ms)
     $enc = [System.Text.Encoding]::GetEncoding("ISO-8859-1")
@@ -126,34 +150,34 @@ function Build-EscPosReceipt {
         $bw.Write($enc.GetBytes("TIN: $($data.shop_tin)`n"))
     }
 
-    # Left align: ESC a 0
     $bw.Write([byte[]]@(0x1B, 0x61, 0x00))
     $bw.Write($enc.GetBytes("OR#: $($data.ref)`n"))
-    $bw.Write($enc.GetBytes("--------------------------------`n"))
+    $bw.Write($enc.GetBytes($div))
     $bw.Write($enc.GetBytes("CASHIER: $($data.cashier)`n"))
     $bw.Write($enc.GetBytes("TERM: $($data.terminal_id)  $($data.date_time)`n"))
-    $bw.Write($enc.GetBytes("--------------------------------`n"))
-    $bw.Write($enc.GetBytes("QTY  ITEM DESCRIPTION   PRICE    TOTAL`n"))
-    $bw.Write($enc.GetBytes("--------------------------------`n"))
+    $bw.Write($enc.GetBytes($div))
+    if ($colWidth -eq 48) {
+        $bw.Write($enc.GetBytes("QTY   ITEM DESCRIPTION           PRICE       TOTAL`n"))
+    } else {
+        $bw.Write($enc.GetBytes("QTY  ITEM DESCRIPTION   PRICE    TOTAL`n"))
+    }
+    $bw.Write($enc.GetBytes($div))
 
-    # Items
     if ($data.items) {
         foreach ($it in $data.items) {
             $qtyVal = if ($it.qty) { [double]$it.qty } else { 1.0 }
             $priceVal = if ($it.price) { [double]$it.price } else { 0.0 }
             $qtyStr = "$qtyVal x"
             $nameStr = "$($it.name)"
-            if ($nameStr.Length -gt 16) { $nameStr = $nameStr.Substring(0, 16) }
+            if ($nameStr.Length -gt $nameMax) { $nameStr = $nameStr.Substring(0, $nameMax) }
             $priceStr = [string]::Format("{0:N2}", $priceVal)
             $totalStr = [string]::Format("{0:N2}", ($qtyVal * $priceVal))
-            
-            # Format: "1 x  Item Name       25.00  25.00"
-            $line = "{0,-4} {1,-14} {2,6} {3,6}`n" -f $qtyStr, $nameStr, $priceStr, $totalStr
+            $line = $itemFmt -f $qtyStr, $nameStr, $priceStr, $totalStr
             $bw.Write($enc.GetBytes($line))
         }
     }
 
-    $bw.Write($enc.GetBytes("--------------------------------`n"))
+    $bw.Write($enc.GetBytes($div))
 
     # Safe double converter
     $toNum = {
@@ -179,23 +203,22 @@ function Build-EscPosReceipt {
     $change = [string]::Format("{0}{1:N2}", $cur, (& $toNum $data.change))
     $itemCount = if ($data.item_count) { "$($data.item_count)" } else { "1" }
 
-    $bw.Write($enc.GetBytes((Format-ReceiptLine "SUBTOTAL:" $subtotal)))
-    $bw.Write($enc.GetBytes((Format-ReceiptLine "VAT ($vatRate%):" $vat)))
-    $bw.Write($enc.GetBytes((Format-ReceiptLine "TAX ($taxRate%):" $tax)))
+    $bw.Write($enc.GetBytes((Format-ReceiptLine "SUBTOTAL:" $subtotal $colWidth)))
+    $bw.Write($enc.GetBytes((Format-ReceiptLine "VAT ($vatRate%):" $vat $colWidth)))
+    $bw.Write($enc.GetBytes((Format-ReceiptLine "TAX ($taxRate%):" $tax $colWidth)))
     
-    # TOTAL DUE (Bold, double height)
     $bw.Write([byte[]]@(0x1B, 0x45, 0x01)) # Bold on
     $bw.Write([byte[]]@(0x1D, 0x21, 0x01)) # Double height
-    $bw.Write($enc.GetBytes((Format-ReceiptLine "TOTAL DUE:" $total 32)))
+    $bw.Write($enc.GetBytes((Format-ReceiptLine "TOTAL DUE:" $total $colWidth)))
     $bw.Write([byte[]]@(0x1D, 0x21, 0x00)) # Normal height
     $bw.Write([byte[]]@(0x1B, 0x45, 0x00)) # Bold off
 
-    $bw.Write($enc.GetBytes("--------------------------------`n"))
+    $bw.Write($enc.GetBytes($div))
     $bw.Write($enc.GetBytes("PAYMENT: CASH`n"))
-    $bw.Write($enc.GetBytes((Format-ReceiptLine "CASH TENDERED:" $cash)))
-    $bw.Write($enc.GetBytes((Format-ReceiptLine "CHANGE DUE:" $change)))
-    $bw.Write($enc.GetBytes((Format-ReceiptLine "ITEMS:" $itemCount)))
-    $bw.Write($enc.GetBytes("--------------------------------`n"))
+    $bw.Write($enc.GetBytes((Format-ReceiptLine "CASH TENDERED:" $cash $colWidth)))
+    $bw.Write($enc.GetBytes((Format-ReceiptLine "CHANGE DUE:" $change $colWidth)))
+    $bw.Write($enc.GetBytes((Format-ReceiptLine "ITEMS:" $itemCount $colWidth)))
+    $bw.Write($enc.GetBytes($div))
 
     # Center align footer: ESC a 1
     $bw.Write([byte[]]@(0x1B, 0x61, 0x01))
@@ -237,6 +260,10 @@ function Build-EscPosReceipt {
 function Build-EscPosShiftStart {
     param([PSCustomObject]$data)
 
+    $layout   = Get-PaperLayout -PaperSize "$($data.paper_size)"
+    $colWidth = $layout.ColWidth
+    $div      = $layout.Divider + "`n"
+
     $ms = New-Object System.IO.MemoryStream
     $bw = New-Object System.IO.BinaryWriter($ms)
     $enc = [System.Text.Encoding]::GetEncoding("ISO-8859-1")
@@ -256,11 +283,11 @@ function Build-EscPosShiftStart {
     if ($data.shop_address) { $bw.Write($enc.GetBytes("$($data.shop_address)`n")) }
     if ($data.shop_tin) { $bw.Write($enc.GetBytes("TIN: $($data.shop_tin)`n")) }
 
-    $bw.Write($enc.GetBytes("--------------------------------`n"))
+    $bw.Write($enc.GetBytes($div))
     $bw.Write([byte[]]@(0x1B, 0x45, 0x01))
     $bw.Write($enc.GetBytes("*** SHIFT START / CASH FLOAT ***`n"))
     $bw.Write([byte[]]@(0x1B, 0x45, 0x00))
-    $bw.Write($enc.GetBytes("--------------------------------`n"))
+    $bw.Write($enc.GetBytes($div))
 
     # Left align
     $bw.Write([byte[]]@(0x1B, 0x61, 0x00))
@@ -271,7 +298,7 @@ function Build-EscPosShiftStart {
     $bw.Write($enc.GetBytes("ROLE:    $role`n"))
     $bw.Write($enc.GetBytes("TIME:    $dateTime`n"))
     if ($data.shift_id) { $bw.Write($enc.GetBytes("SHIFT ID:#$($data.shift_id)`n")) }
-    $bw.Write($enc.GetBytes("--------------------------------`n"))
+    $bw.Write($enc.GetBytes($div))
     $bw.Write($enc.GetBytes("OPENING FLOAT BREAKDOWN:`n"))
 
     $labels = @{
@@ -293,12 +320,12 @@ function Build-EscPosShiftStart {
                 $sub = $qty * $unitVal
                 $left = "$lbl x $qty"
                 $right = [string]::Format("P{0:N2}", $sub)
-                $bw.Write($enc.GetBytes((Format-ReceiptLine $left $right)))
+                $bw.Write($enc.GetBytes((Format-ReceiptLine $left $right $colWidth)))
             }
         }
     }
 
-    $bw.Write($enc.GetBytes("--------------------------------`n"))
+    $bw.Write($enc.GetBytes($div))
 
     # Total Float
     $cur = if ($data.currency) { $data.currency } else { "P" }
@@ -307,10 +334,10 @@ function Build-EscPosShiftStart {
 
     $bw.Write([byte[]]@(0x1B, 0x45, 0x01)) # Bold on
     $bw.Write([byte[]]@(0x1D, 0x21, 0x01)) # Double height
-    $bw.Write($enc.GetBytes((Format-ReceiptLine "STARTING FLOAT:" $totStr 32)))
+    $bw.Write($enc.GetBytes((Format-ReceiptLine "STARTING FLOAT:" $totStr $colWidth)))
     $bw.Write([byte[]]@(0x1D, 0x21, 0x00))
     $bw.Write([byte[]]@(0x1B, 0x45, 0x00))
-    $bw.Write($enc.GetBytes("--------------------------------`n"))
+    $bw.Write($enc.GetBytes($div))
 
     # Center footer & signatures
     $bw.Write([byte[]]@(0x1B, 0x61, 0x01)) # Center
@@ -335,6 +362,11 @@ function Build-EscPosShiftStart {
 function Build-EscPosShiftSummary {
     param([PSCustomObject]$data)
 
+    $layout   = Get-PaperLayout -PaperSize "$($data.paper_size)"
+    $colWidth = $layout.ColWidth
+    $div      = $layout.Divider + "`n"
+    $nameMax  = $layout.NameMax
+
     $ms = New-Object System.IO.MemoryStream
     $bw = New-Object System.IO.BinaryWriter($ms)
     $enc = [System.Text.Encoding]::GetEncoding("ISO-8859-1")
@@ -354,11 +386,11 @@ function Build-EscPosShiftSummary {
     if ($data.shop_address) { $bw.Write($enc.GetBytes("$($data.shop_address)`n")) }
     if ($data.shop_tin) { $bw.Write($enc.GetBytes("TIN: $($data.shop_tin)`n")) }
 
-    $bw.Write($enc.GetBytes("--------------------------------`n"))
+    $bw.Write($enc.GetBytes($div))
     $bw.Write([byte[]]@(0x1B, 0x45, 0x01))
     $bw.Write($enc.GetBytes("*** SHIFT SUMMARY - Z-READ ***`n"))
     $bw.Write([byte[]]@(0x1B, 0x45, 0x00))
-    $bw.Write($enc.GetBytes("--------------------------------`n"))
+    $bw.Write($enc.GetBytes($div))
 
     # Left align
     $bw.Write([byte[]]@(0x1B, 0x61, 0x00))
@@ -366,7 +398,7 @@ function Build-EscPosShiftSummary {
     $bw.Write($enc.GetBytes("CASHIER: $cashier`n"))
     $bw.Write($enc.GetBytes("LOGIN:   $($data.login_time)`n"))
     $bw.Write($enc.GetBytes("LOGOUT:  $($data.logout_time)`n"))
-    $bw.Write($enc.GetBytes("--------------------------------`n"))
+    $bw.Write($enc.GetBytes($div))
 
     $cur = "P"
     $toNum = {
@@ -387,48 +419,48 @@ function Build-EscPosShiftSummary {
     $varPrefix = if ($varVal -gt 0) { "+" } else { "" }
     $varStr = [string]::Format("{0}{1}{2:N2} ({3})", $varPrefix, $cur, $varVal, $varLabel)
 
-    $bw.Write($enc.GetBytes((Format-ReceiptLine "OPENING FLOAT:" $openFloat)))
-    $bw.Write($enc.GetBytes((Format-ReceiptLine "GROSS CASH SALES:" $cashSales)))
+    $bw.Write($enc.GetBytes((Format-ReceiptLine "OPENING FLOAT:" $openFloat $colWidth)))
+    $bw.Write($enc.GetBytes((Format-ReceiptLine "GROSS CASH SALES:" $cashSales $colWidth)))
 
     $voidCount = if ($data.void_count) { [int]$data.void_count } else { 0 }
     if ($voidCount -gt 0) {
         $voidValStr = [string]::Format("-{0}{1:N2}", $cur, (& $toNum $data.void_value))
-        $bw.Write($enc.GetBytes((Format-ReceiptLine "VOIDS/REFUNDS ($voidCount):" $voidValStr)))
+        $bw.Write($enc.GetBytes((Format-ReceiptLine "VOIDS/REFUNDS ($voidCount):" $voidValStr $colWidth)))
     }
 
-    $bw.Write($enc.GetBytes("--------------------------------`n"))
-    $bw.Write($enc.GetBytes((Format-ReceiptLine "EXPECTED IN TILL:" $expected)))
-    $bw.Write($enc.GetBytes((Format-ReceiptLine "ACTUAL COUNTED:" $actual)))
-    $bw.Write($enc.GetBytes("--------------------------------`n"))
+    $bw.Write($enc.GetBytes($div))
+    $bw.Write($enc.GetBytes((Format-ReceiptLine "EXPECTED IN TILL:" $expected $colWidth)))
+    $bw.Write($enc.GetBytes((Format-ReceiptLine "ACTUAL COUNTED:" $actual $colWidth)))
+    $bw.Write($enc.GetBytes($div))
 
     # VARIANCE (Bold, double height)
     $bw.Write([byte[]]@(0x1B, 0x45, 0x01)) # Bold on
     $bw.Write([byte[]]@(0x1D, 0x21, 0x01)) # Double height
-    $bw.Write($enc.GetBytes((Format-ReceiptLine "VARIANCE:" $varStr 32)))
+    $bw.Write($enc.GetBytes((Format-ReceiptLine "VARIANCE:" $varStr $colWidth)))
     $bw.Write([byte[]]@(0x1D, 0x21, 0x00))
     $bw.Write([byte[]]@(0x1B, 0x45, 0x00))
-    $bw.Write($enc.GetBytes("--------------------------------`n"))
+    $bw.Write($enc.GetBytes($div))
 
     $txCount = if ($data.transaction_count) { "$($data.transaction_count)" } else { "0" }
     $itCount = if ($data.items_sold) { "$($data.items_sold)" } else { "0" }
-    $bw.Write($enc.GetBytes((Format-ReceiptLine "TOTAL TRANSACTIONS:" $txCount)))
-    $bw.Write($enc.GetBytes((Format-ReceiptLine "TOTAL ITEMS SOLD:" $itCount)))
+    $bw.Write($enc.GetBytes((Format-ReceiptLine "TOTAL TRANSACTIONS:" $txCount $colWidth)))
+    $bw.Write($enc.GetBytes((Format-ReceiptLine "TOTAL ITEMS SOLD:" $itCount $colWidth)))
 
     # Top Items
     if ($data.top_items -and $data.top_items.Count -gt 0) {
-        $bw.Write($enc.GetBytes("--------------------------------`n"))
+        $bw.Write($enc.GetBytes($div))
         $bw.Write($enc.GetBytes("TOP SELLING ITEMS:`n"))
         foreach ($ti in $data.top_items) {
             $name = if ($ti.name) { $ti.name } else { $ti.product_name }
-            if ($name.Length -gt 16) { $name = $name.Substring(0, 16) }
+            if ($name.Length -gt $nameMax) { $name = $name.Substring(0, $nameMax) }
             $lineLeft = "$name x$($ti.qty)"
             $subVal = if ($ti.total) { $ti.total } else { $ti.revenue }
             $lineRight = [string]::Format("P{0:N2}", (& $toNum $subVal))
-            $bw.Write($enc.GetBytes((Format-ReceiptLine $lineLeft $lineRight)))
+            $bw.Write($enc.GetBytes((Format-ReceiptLine $lineLeft $lineRight $colWidth)))
         }
     }
 
-    $bw.Write($enc.GetBytes("--------------------------------`n"))
+    $bw.Write($enc.GetBytes($div))
     # Signatures
     $bw.Write([byte[]]@(0x1B, 0x61, 0x01)) # Center
     $bw.Write($enc.GetBytes("Cashier Signature:`n`n"))

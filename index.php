@@ -4292,7 +4292,7 @@ if (isset($_GET['api'])) {
                 // the redesigned printed receipt header (BIR-style store details) —
                 // same generic settings table, no schema change, no existing key touched.
                 $ssSid = currentStoreId();
-                foreach (['shop_name', 'currency', 'vat_rate', 'tax_rate', 'shop_address', 'shop_tin', 'terminal_id', 'qz_drawer_enabled', 'qz_drawer_printer', 'sales_retention_days', 'auto_cleanup_enabled'] as $k) if (isset($body[$k])) $st->execute([$ssSid, $k, (string)$body[$k]]);
+                foreach (['shop_name', 'currency', 'vat_rate', 'tax_rate', 'shop_address', 'shop_tin', 'terminal_id', 'qz_drawer_enabled', 'qz_drawer_printer', 'sales_retention_days', 'auto_cleanup_enabled', 'receipt_paper_size'] as $k) if (isset($body[$k])) $st->execute([$ssSid, $k, (string)$body[$k]]);
                 unset($_SESSION['store_settings_' . $ssSid]); // bust the per-session settings cache so the change shows up immediately
                 json(true, ['ok' => true]);
                 break;
@@ -5776,7 +5776,8 @@ $storeSettings = [
     'shop_address' => '',
     'shop_tin' => '',
     'terminal_id' => 'POS-01',
-    'shop_logo' => ''
+    'shop_logo' => '',
+    'receipt_paper_size' => '58mm'
 ];
 if (loggedIn()) {
     // PERFORMANCE FIX: settings barely ever change, but were being
@@ -9102,6 +9103,10 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
             box-sizing: border-box;
         }
 
+        .pos-page-view {
+            width: 100%;
+        }
+
         .container {
             width: 100%;
             max-width: 1200px;
@@ -11846,22 +11851,22 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
     <?php if (!$isAuthPage): ?>
         <!-- ── NAV ── -->
         <nav class="nav">
-            <a href="?page=dashboard" class="nav-logo" style="display:flex;align-items:center;gap:8px;">
+            <a href="?page=dashboard" onclick="return navigateToPage('dashboard', event);" class="nav-logo" style="display:flex;align-items:center;gap:8px;">
                 <?= renderShopNameHtml($storeSettings['shop_name'], 'b') ?>
             </a>
             <div class="nav-links">
-                <a href="?page=dashboard" class="nav-link <?= $page === 'dashboard' ? 'active' : '' ?>"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:3px;"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>Dashboard</a>
+                <a href="?page=dashboard" onclick="return navigateToPage('dashboard', event);" class="nav-link <?= $page === 'dashboard' ? 'active' : '' ?>"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:3px;"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>Dashboard</a>
                 <?php if (!$isCashierRole): ?>
-                    <a href="?page=products" class="nav-link <?= $page === 'products' ? 'active' : '' ?>"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:3px;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>Products</a>
-                    <a href="?page=warehouse" class="nav-link <?= $page === 'warehouse' ? 'active' : '' ?>"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:3px;"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>Warehouse</a>
+                    <a href="?page=products" onclick="return navigateToPage('products', event);" class="nav-link <?= $page === 'products' ? 'active' : '' ?>"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:3px;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>Products</a>
+                    <a href="?page=warehouse" onclick="return navigateToPage('warehouse', event);" class="nav-link <?= $page === 'warehouse' ? 'active' : '' ?>"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:3px;"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>Warehouse</a>
                 <?php endif; ?>
                 <?php if (!$isCashierRole): ?>
-                    <a href="?page=sales" class="nav-link <?= $page === 'sales' ? 'active' : '' ?>"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:3px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Sales</a>
+                    <a href="?page=sales" onclick="return navigateToPage('sales', event);" class="nav-link <?= $page === 'sales' ? 'active' : '' ?>"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:3px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Sales</a>
                 <?php endif; ?>
                 <?php if (!$isCashierRole): ?>
-                    <a href="?page=analytics" class="nav-link <?= $page === 'analytics' ? 'active' : '' ?>"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:3px;"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Analytics</a>
-                    <a href="?page=forecast" class="nav-link <?= $page === 'forecast' ? 'active' : '' ?>"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:3px;"><path d="M23 6l-9.5 9.5-5-5L1 18"/><polyline points="17 6 23 6 23 12"/></svg>Forecast</a>
-                    <a href="?page=settings" class="nav-link <?= $page === 'settings' ? 'active' : '' ?>"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:3px;"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Settings</a>
+                    <a href="?page=analytics" onclick="return navigateToPage('analytics', event);" class="nav-link <?= $page === 'analytics' ? 'active' : '' ?>"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:3px;"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Analytics</a>
+                    <a href="?page=forecast" onclick="return navigateToPage('forecast', event);" class="nav-link <?= $page === 'forecast' ? 'active' : '' ?>"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:3px;"><path d="M23 6l-9.5 9.5-5-5L1 18"/><polyline points="17 6 23 6 23 12"/></svg>Forecast</a>
+                    <a href="?page=settings" onclick="return navigateToPage('settings', event);" class="nav-link <?= $page === 'settings' ? 'active' : '' ?>"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:3px;"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Settings</a>
                 <?php endif; ?>
             </div>
             <!-- Light/Dark app-theme toggle — see toggleTheme() in the main
@@ -11887,7 +11892,7 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
         <!-- ── MOBILE NAV ── -->
         <nav class="mob-nav">
             <div class="mob-nav-inner">
-                <a href="?page=dashboard" class="mob-btn <?= $page === 'dashboard' ? 'active' : '' ?>">
+                <a href="?page=dashboard" onclick="return navigateToPage('dashboard', event);" class="mob-btn <?= $page === 'dashboard' ? 'active' : '' ?>">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect x="3" y="3" width="7" height="7" />
                         <rect x="14" y="3" width="7" height="7" />
@@ -11896,12 +11901,12 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
                     </svg>Dash
                 </a>
                 <?php if (!$isCashierRole): ?>
-                    <a href="?page=products" class="mob-btn <?= $page === 'products' ? 'active' : '' ?>">
+                    <a href="?page=products" onclick="return navigateToPage('products', event);" class="mob-btn <?= $page === 'products' ? 'active' : '' ?>">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" />
                         </svg>Items
                     </a>
-                    <a href="?page=warehouse" class="mob-btn <?= $page === 'warehouse' ? 'active' : '' ?>">
+                    <a href="?page=warehouse" onclick="return navigateToPage('warehouse', event);" class="mob-btn <?= $page === 'warehouse' ? 'active' : '' ?>">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
                             <polyline points="9 22 9 12 15 12 15 22" />
@@ -11909,7 +11914,7 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
                     </a>
                 <?php endif; ?>
                 <?php if (!$isCashierRole): ?>
-                    <a href="?page=sales" class="mob-btn <?= $page === 'sales' ? 'active' : '' ?>">
+                    <a href="?page=sales" onclick="return navigateToPage('sales', event);" class="mob-btn <?= $page === 'sales' ? 'active' : '' ?>">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
                             <polyline points="14 2 14 8 20 8" />
@@ -11924,20 +11929,20 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
                     </a>
                 <?php endif; ?>
                 <?php if (!$isCashierRole): ?>
-                    <a href="?page=analytics" class="mob-btn <?= $page === 'analytics' ? 'active' : '' ?>">
+                    <a href="?page=analytics" onclick="return navigateToPage('analytics', event);" class="mob-btn <?= $page === 'analytics' ? 'active' : '' ?>">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <line x1="18" y1="20" x2="18" y2="10" />
                             <line x1="12" y1="20" x2="12" y2="4" />
                             <line x1="6" y1="20" x2="6" y2="14" />
                         </svg>Stats
                     </a>
-                    <a href="?page=forecast" class="mob-btn <?= $page === 'forecast' ? 'active' : '' ?>">
+                    <a href="?page=forecast" onclick="return navigateToPage('forecast', event);" class="mob-btn <?= $page === 'forecast' ? 'active' : '' ?>">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M3 3l7.5 7.5L13 8l8 8" />
                             <path d="M21 16v5h-5" />
                         </svg>Forecast
                     </a>
-                    <a href="?page=settings" class="mob-btn <?= $page === 'settings' ? 'active' : '' ?>">
+                    <a href="?page=settings" onclick="return navigateToPage('settings', event);" class="mob-btn <?= $page === 'settings' ? 'active' : '' ?>">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <circle cx="12" cy="12" r="3" />
                             <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" />
@@ -13695,7 +13700,7 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
     <!-- ══════════════════════════════════════════
      DASHBOARD PAGE
 ══════════════════════════════════════════ -->
-    <?php if ($page === 'dashboard'): ?>
+    <div id="view-dashboard" class="pos-page-view" style="<?= ($page === 'dashboard' || empty($page)) ? '' : 'display:none;' ?>">
         <main class="page">
             <div class="container">
                 <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
@@ -14023,12 +14028,13 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
                 </button>
             </div>
         </div>
-    <?php endif; ?>
+    </div>
 
     <!-- ══════════════════════════════════════════
      PRODUCTS PAGE
 ══════════════════════════════════════════ -->
-    <?php if ($page === 'products'): ?>
+    <?php if (!$isCashierRole): ?>
+    <div id="view-products" class="pos-page-view" style="<?= $page === 'products' ? '' : 'display:none;' ?>">
         <main class="page">
             <div class="container">
                 <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
@@ -14066,13 +14072,13 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
                 <div class="grid-4 fade-in" id="prod-grid"></div>
             </div>
         </main>
-    <?php endif; ?>
+    </div>
 
     <!-- ══════════════════════════════════════════
      WAREHOUSE PAGE
 ══════════════════════════════════════════ -->
-        <?php if ($page === 'warehouse'): ?>
-            <main class="page">
+    <div id="view-warehouse" class="pos-page-view" style="<?= $page === 'warehouse' ? '' : 'display:none;' ?>">
+        <main class="page">
                 <div class="container">
                     <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
                         <div>
@@ -14332,15 +14338,13 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
                     </div>
                 </div>
             </div>
+    </div>
 
-            
-        <?php endif; ?>
-
-        <!-- ══════════════════════════════════════════
+    <!-- ══════════════════════════════════════════
      SALES PAGE
 ══════════════════════════════════════════ -->
-        <?php if ($page === 'sales'): ?>
-            <main class="page">
+    <div id="view-sales" class="pos-page-view" style="<?= $page === 'sales' ? '' : 'display:none;' ?>">
+        <main class="page">
                 <div class="container">
                     <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
                         <div>
@@ -14478,14 +14482,13 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
                     </div>
                 </div>
             </div>
+    </div>
 
-        <?php endif; ?>
-
-        <!-- ══════════════════════════════════════════
+    <!-- ══════════════════════════════════════════
      ANALYTICS PAGE
 ══════════════════════════════════════════ -->
-        <?php if ($page === 'analytics'): ?>
-            <main class="page">
+    <div id="view-analytics" class="pos-page-view" style="<?= $page === 'analytics' ? '' : 'display:none;' ?>">
+        <main class="page">
                 <div class="container">
                     <div class="page-header">
                         <h1 class="page-title">Analytics &amp; <span>Insights</span></h1>
@@ -14599,13 +14602,13 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
                     </div>
                 </div>
             </main>
-        <?php endif; ?>
+    </div>
 
-        <!-- ══════════════════════════════════════════
+    <!-- ══════════════════════════════════════════
      FORECAST PAGE
 ══════════════════════════════════════════ -->
-        <?php if ($page === 'forecast'): ?>
-            <main class="page">
+    <div id="view-forecast" class="pos-page-view" style="<?= $page === 'forecast' ? '' : 'display:none;' ?>">
+        <main class="page">
                 <div class="container">
                     <div class="page-header">
                         <h1 class="page-title">Demand <span>Forecasting</span></h1>
@@ -14730,13 +14733,13 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
 
                 </div>
             </main>
-        <?php endif; ?>
+    </div>
 
-        <!-- ══════════════════════════════════════════
+    <!-- ══════════════════════════════════════════
      SETTINGS PAGE
 ══════════════════════════════════════════ -->
-        <?php if ($page === 'settings'): ?>
-            <main class="page">
+    <div id="view-settings" class="pos-page-view" style="<?= $page === 'settings' ? '' : 'display:none;' ?>">
+        <main class="page">
                 <div class="container" style="max-width:680px;">
                     <div class="page-header">
                         <h1 class="page-title">Store <span>Settings</span></h1>
@@ -14822,6 +14825,13 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
                             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
                                 <div class="form-group"><label class="form-label">VAT (%)</label><input type="number" class="form-input" id="vat-rate-inp" min="0" max="100" step="0.01" placeholder="0" /></div>
                                 <div class="form-group"><label class="form-label">Tax (%)</label><input type="number" class="form-input" id="tax-rate-inp" min="0" max="100" step="0.01" placeholder="0" /></div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Receipt Printer Paper Size <span style="color:var(--text3);font-weight:400;">(thermal rolls)</span></label>
+                                <select class="form-input" id="receipt-paper-size-inp">
+                                    <option value="58mm">58mm (2 1/4" / Compact Thermal Roll - 32 cols)</option>
+                                    <option value="80mm">80mm (3 1/8" / Standard Counter Thermal Roll - 48 cols)</option>
+                                </select>
                             </div>
                             <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
                         </div>
@@ -15082,7 +15092,8 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
                     </div>
                 </div>
             </main>
-        <?php endif; ?>
+    </div>
+    <?php endif; // end !$isCashierRole ?>
 
         <!-- ── TOAST ── -->
         <div id="toast-wrap"></div>
@@ -15094,6 +15105,102 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
             const API_BASE = '?api=';
             const CSRF_TOKEN = '<?= htmlspecialchars(CSRF_TOKEN, ENT_QUOTES) ?>';
             let cur_page = '<?= $page ?>';
+
+            // ── SPA CLIENT-SIDE ROUTER ──
+            function showPage(targetPage, pushState = true) {
+                if (!targetPage) return;
+                const isCashier = <?= $isCashierRole ? 'true' : 'false' ?>;
+                if (isCashier && targetPage !== 'dashboard') {
+                    targetPage = 'dashboard';
+                }
+
+                const views = document.querySelectorAll('.pos-page-view');
+                if (views.length > 0) {
+                    views.forEach(el => {
+                        el.style.display = 'none';
+                    });
+                    const targetView = document.getElementById('view-' + targetPage);
+                    if (targetView) {
+                        targetView.style.display = '';
+                    }
+                }
+
+                // Update cur_page
+                cur_page = targetPage;
+
+                // Update desktop nav links
+                document.querySelectorAll('.nav-links .nav-link').forEach(link => {
+                    const href = link.getAttribute('href') || '';
+                    const match = href.includes('?page=' + targetPage);
+                    link.classList.toggle('active', match);
+                });
+
+                // Update mobile nav buttons
+                document.querySelectorAll('.mob-nav .mob-btn').forEach(btn => {
+                    const href = btn.getAttribute('href') || '';
+                    const match = href.includes('?page=' + targetPage);
+                    btn.classList.toggle('active', match);
+                });
+
+                // Scanner float visibility & camera cleanup
+                const sf = document.getElementById('scanner-float');
+                if (sf) {
+                    sf.style.display = (targetPage === 'dashboard') ? 'block' : 'none';
+                }
+                if (targetPage !== 'dashboard') {
+                    if (typeof stopScanner === 'function') stopScanner();
+                    if (typeof _gridObserver !== 'undefined' && _gridObserver) {
+                        _gridObserver.disconnect();
+                        _gridObserver = null;
+                    }
+                }
+
+                // Push URL state without reloading
+                if (pushState && window.history && window.history.pushState) {
+                    const newUrl = window.location.pathname + '?page=' + encodeURIComponent(targetPage);
+                    if (window.location.search !== '?page=' + targetPage) {
+                        window.history.pushState({ page: targetPage }, '', newUrl);
+                    }
+                }
+
+                // Auto-refresh page view data
+                try {
+                    if (targetPage === 'dashboard' && typeof renderGrid === 'function') {
+                        renderGrid();
+                    } else if (targetPage === 'products' && typeof prodsInit === 'function') {
+                        prodsInit();
+                    } else if (targetPage === 'warehouse' && typeof warehouseInit === 'function') {
+                        warehouseInit();
+                    } else if (targetPage === 'sales' && typeof salesInit === 'function') {
+                        salesInit();
+                    } else if (targetPage === 'analytics' && typeof analyticsInit === 'function') {
+                        analyticsInit();
+                    } else if (targetPage === 'forecast' && typeof forecastInit === 'function') {
+                        forecastInit();
+                    } else if (targetPage === 'settings' && typeof settingsInit === 'function') {
+                        settingsInit();
+                    }
+                } catch (err) {
+                    console.warn('[SPA] Error refreshing view:', err);
+                }
+
+                window.scrollTo({ top: 0, behavior: 'instant' });
+            }
+
+            function navigateToPage(targetPage, e) {
+                if (e) {
+                    if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return true;
+                    e.preventDefault();
+                }
+                showPage(targetPage, true);
+                return false;
+            }
+
+            window.addEventListener('popstate', function(e) {
+                const params = new URLSearchParams(window.location.search);
+                const p = params.get('page') || 'dashboard';
+                showPage(p, false);
+            });
             // Default product photo (no-photo placeholder + broken-photo fallback
             // everywhere a product image is rendered). Resolved server-side so the
             // cache-buster query string matches the actual file on disk.
@@ -15116,6 +15223,8 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
             const SHOP_ADDRESS = <?= json_encode($storeSettings['shop_address']) ?>;
             const SHOP_TIN = <?= json_encode($storeSettings['shop_tin']) ?>;
             const TERMINAL_ID = <?= json_encode($storeSettings['terminal_id']) ?>;
+            const RECEIPT_PAPER_SIZE = <?= json_encode($storeSettings['receipt_paper_size'] ?? '58mm') ?>;
+            let currentReceiptPaperSize = RECEIPT_PAPER_SIZE || '58mm';
             // Cash-drawer-via-QZ-Tray config. QZ_DRAWER_ENABLED gates the automatic
             // post-payment kick; QZ_DRAWER_PRINTER is the exact OS printer name the
             // drawer is physically wired to (leave blank until Settings is configured
@@ -16523,36 +16632,47 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
             // instead of three copies slowly drifting apart from each other.
             // ── SHARED RECEIPT STYLING (Payment / Z-Read / Void) ──
             // Universal thermal printer support: auto-adapts to 58mm & 80mm rolls
-            function receiptBaseCSS() {
+            function receiptBaseCSS(paperSize) {
+                const is80mm = (paperSize || currentReceiptPaperSize) === '80mm';
+                const maxWidth = is80mm ? '380px' : '290px';
+                const bodyFontSize = is80mm ? '13.5px' : '12px';
+                const thFontSize = is80mm ? '11.5px' : '10px';
+                const tdFontSize = is80mm ? '12.5px' : '11.5px';
+                const printFontSize = is80mm ? '13px' : '11.5px';
+                const colQty = is80mm ? '14%' : '16%';
+                const colDesc = is80mm ? '50%' : '42%';
+                const colPrice = is80mm ? '18%' : '21%';
+                const colTotal = is80mm ? '18%' : '21%';
+
                 return '*{box-sizing:border-box;margin:0;padding:0;}' +
-                    'body{background:#fff;font-family:"SF Mono","Menlo","Consolas","Courier New",monospace;font-size:12.5px;line-height:1.35;color:#000;}' +
-                    '.receipt-container{width:100%;max-width:290px;background:#fff;padding:10px 8px;margin:0 auto;}' +
+                    'body{background:#fff;font-family:"SF Mono","Menlo","Consolas","Courier New",monospace;font-size:' + bodyFontSize + ';line-height:1.35;color:#000;}' +
+                    '.receipt-container{width:100%;max-width:' + maxWidth + ';background:#fff;padding:8px 6px;margin:0 auto;}' +
                     '.receipt-header{text-align:center;margin-bottom:6px;}' +
-                    '.receipt-header h1{font-size:20px;font-weight:800;margin:0 0 3px 0;letter-spacing:1px;word-break:break-word;}' +
-                    '.receipt-header p{margin:1px 0;font-size:11px;word-break:break-word;}' +
-                    '.receipt-header .doc-type{font-size:10.5px;font-weight:800;letter-spacing:.06em;color:#333;margin-top:4px;}' +
+                    '.receipt-header h1{font-size:' + (is80mm ? '22px' : '20px') + ';font-weight:800;margin:0 0 3px 0;letter-spacing:1px;word-break:break-word;}' +
+                    '.receipt-header p{margin:1px 0;font-size:' + (is80mm ? '12px' : '11px') + ';word-break:break-word;}' +
+                    '.receipt-header .doc-type{font-size:' + (is80mm ? '11.5px' : '10.5px') + ';font-weight:800;letter-spacing:.06em;color:#333;margin-top:4px;}' +
                     '.divider{border-top:1px dashed #000;margin:6px 0;}' +
                     '.receipt-row{display:flex;justify-content:space-between;width:100%;margin:1.5px 0;gap:4px;}' +
                     '.receipt-row.b{font-weight:800;}' +
                     '.receipt-row.void{color:#C0392B;font-weight:800;}' +
                     'table.items{width:100%;border-collapse:collapse;table-layout:fixed;margin:2px 0;}' +
-                    'table.items th{font-size:10px;font-weight:800;text-align:left;padding:2px 1px;border-bottom:1px dashed #000;}' +
-                    'table.items td{font-size:11.5px;padding:2px 1px;vertical-align:top;word-break:break-word;}' +
+                    'table.items th{font-size:' + thFontSize + ';font-weight:800;text-align:left;padding:2px 1px;border-bottom:1px dashed #000;}' +
+                    'table.items td{font-size:' + tdFontSize + ';padding:2px 1px;vertical-align:top;word-break:break-word;}' +
                     'table.items th.right, table.items td.right{text-align:right;white-space:nowrap;}' +
-                    'table.items col.qty{width:16%;} table.items col.desc{width:42%;} table.items col.price{width:21%;} table.items col.total{width:21%;}' +
-                    '.total-band{background:#e4e4e4;font-weight:800;font-size:14px;padding:5px 4px;margin:5px 0;display:flex;justify-content:space-between;border-radius:2px;}' +
-                    '.void-band{background:#fbe4e1;color:#C0392B;font-weight:800;font-size:12.5px;padding:5px 4px;margin:5px 0;display:flex;justify-content:space-between;border-radius:2px;}' +
+                    'table.items col.qty{width:' + colQty + ';} table.items col.desc{width:' + colDesc + ';} table.items col.price{width:' + colPrice + ';} table.items col.total{width:' + colTotal + ';}' +
+                    '.total-band{background:#e4e4e4;font-weight:800;font-size:' + (is80mm ? '15px' : '14px') + ';padding:5px 4px;margin:5px 0;display:flex;justify-content:space-between;border-radius:2px;}' +
+                    '.void-band{background:#fbe4e1;color:#C0392B;font-weight:800;font-size:' + (is80mm ? '13.5px' : '12.5px') + ';padding:5px 4px;margin:5px 0;display:flex;justify-content:space-between;border-radius:2px;}' +
                     'tr.voided-row td{color:#C0392B;text-decoration:line-through;}' +
                     '.void-tag{font-size:9.5px;font-weight:800;letter-spacing:.04em;text-decoration:none;}' +
-                    'h3{font-size:10.5px;letter-spacing:.06em;color:#333;margin:8px 0 3px;}' +
-                    '.receipt-footer{text-align:center;margin-top:10px;font-size:11px;}' +
-                    '.receipt-footer .bold{font-weight:800;font-size:12px;}' +
+                    'h3{font-size:' + (is80mm ? '11.5px' : '10.5px') + ';letter-spacing:.06em;color:#333;margin:8px 0 3px;}' +
+                    '.receipt-footer{text-align:center;margin-top:10px;font-size:' + (is80mm ? '12px' : '11px') + ';}' +
+                    '.receipt-footer .bold{font-weight:800;font-size:' + (is80mm ? '13px' : '12px') + ';}' +
                     '@media print{' +
                     '  @page{margin:0;size:auto;}' +
                     '  html,body{width:100%!important;margin:0!important;padding:0!important;background:#fff!important;}' +
                     '  body *{visibility:hidden;}' +
                     '  .receipt-container,.receipt-container *{visibility:visible;}' +
-                    '  .receipt-container{position:absolute;left:0;top:0;width:100%!important;max-width:100%!important;padding:3mm 2mm!important;margin:0!important;font-size:11.5px!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}' +
+                    '  .receipt-container{position:absolute;left:0;top:0;width:100%!important;max-width:100%!important;padding:3mm 2mm!important;margin:0!important;font-size:' + printFontSize + '!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}' +
                     '  .total-band,.void-band{-webkit-print-color-adjust:exact;print-color-adjust:exact;}' +
                     '}';
             }
@@ -18622,6 +18742,9 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
             // ── NATIVE THERMAL PRINT AGENT & CASH DRAWER HELPERS ──
             async function tryNativePrintAgent(payload) {
                 try {
+                    if (payload && !payload.paper_size) {
+                        payload.paper_size = (typeof currentReceiptPaperSize !== 'undefined' ? currentReceiptPaperSize : '58mm');
+                    }
                     const ctrl = new AbortController();
                     const timer = setTimeout(() => ctrl.abort(), 1200);
                     const res = await fetch('http://127.0.0.1:9100/print', {
@@ -21198,6 +21321,9 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
                     if (tii) tii.value = s.terminal_id || 'POS-01';
                     if (vri) vri.value = s.vat_rate || 0;
                     if (tri) tri.value = s.tax_rate || 0;
+                    // Paper size — sync select to stored value (default 58mm)
+                    const psi = document.getElementById('receipt-paper-size-inp');
+                    if (psi) psi.value = s.receipt_paper_size || '58mm';
                     // System Theme controls populate from localStorage (this is a
                     // per-browser display preference, not a store-wide setting — see
                     // saveSystemTheme()/resetSystemTheme() below), not from server settings.
@@ -21754,16 +21880,25 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
                 const terminal_id = document.getElementById('terminal-id-inp')?.value.trim() || 'POS-01';
                 const vat_rate = Math.max(0, parseFloat(document.getElementById('vat-rate-inp')?.value || 0));
                 const tax_rate = Math.max(0, parseFloat(document.getElementById('tax-rate-inp')?.value || 0));
+                const receipt_paper_size = document.getElementById('receipt-paper-size-inp')?.value || '58mm';
                 apiPost('save_settings', {
                     shop_name,
                     currency,
                     shop_address,
                     shop_tin,
-                    terminal_id
-                    , vat_rate
-                    , tax_rate
+                    terminal_id,
+                    vat_rate,
+                    tax_rate,
+                    receipt_paper_size
                 }).then(r => {
-                    toast(r?.success ? 'Settings saved!' : 'Error saving settings', r?.success ? 'success' : 'error');
+                    if (r?.success) {
+                        // Update the live JS variable so browser-print receipts immediately
+                        // use the newly selected paper width — no page reload needed.
+                        currentReceiptPaperSize = receipt_paper_size;
+                        toast('Settings saved!', 'success');
+                    } else {
+                        toast('Error saving settings', 'error');
+                    }
                 });
             }
 

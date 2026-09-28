@@ -4,7 +4,7 @@
 // works seamlessly with 100% functionality even when offline/no-network.
 // ═══════════════════════════════════════════════════════════════════════════
 
-const SHELL = 'pos-shell-v17';
+const SHELL = 'pos-shell-v18';
 const IMGS = 'pos-img-v3';
 const IMG_LIMIT = 500;
 const BASE = new URL('./', self.location).href;
@@ -13,6 +13,7 @@ const APP_SHELL_KEY = new URL('./?page=dashboard', self.location).href;
 const PRECACHE_ASSETS = [
     new URL('./', BASE).href,
     new URL('index.php', BASE).href,
+    new URL('index.php?page=dashboard', BASE).href,
     new URL('manifest.json', BASE).href,
     new URL('manifest.webmanifest', BASE).href,
     new URL('assets/icon-192.png', BASE).href,
@@ -80,6 +81,20 @@ async function trimCache(cacheName, max) {
     } catch (e) {}
 }
 
+// Quick fetch with timeout to avoid freezing offline or on weak signal
+async function fetchWithTimeout(request, timeoutMs = 3000) {
+    const ctrl = new AbortController();
+    const id = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+        const response = await fetch(request, { signal: ctrl.signal });
+        clearTimeout(id);
+        return response;
+    } catch (err) {
+        clearTimeout(id);
+        throw err;
+    }
+}
+
 self.addEventListener('fetch', e => {
     const req = e.request;
     const url = new URL(req.url);
@@ -89,12 +104,12 @@ self.addEventListener('fetch', e => {
         return;
     }
 
-    // Dynamic API requests (?api=...) - let the page's client-side IndexedDB engine intercept
-    // when offline, but if a request reaches the SW while offline, respond cleanly
+    // Dynamic API requests (?api=...) - fast timeout failover so client IndexedDB answers instantly
     if (url.searchParams.has('api')) {
         e.respondWith(
-            fetch(req).catch(() => {
+            fetchWithTimeout(req, 2800).catch(() => {
                 return new Response(JSON.stringify({ success: false, offline: true, error: 'Offline - server unreachable' }), {
+                    status: 200,
                     headers: { 'Content-Type': 'application/json' }
                 });
             })
@@ -125,21 +140,20 @@ self.addEventListener('fetch', e => {
         return;
     }
 
-    // ── APP HTML NAVIGATION: Network-first, with cached SPA shell fallback for offline ──
+    // ── APP HTML NAVIGATION: Network-first with quick 2.5s timeout, cached full SPA shell fallback ──
     if (req.mode === 'navigate') {
         e.respondWith((async () => {
             const shellCache = await caches.open(SHELL);
             try {
-                // Try live network request first to keep session / data fresh
-                const resp = await fetch(req);
+                // Try live network request first with quick timeout
+                const resp = await fetchWithTimeout(req, 2500);
                 if (resp && resp.status === 200) {
-                    // Update the cached app shell with the newest online version
                     await shellCache.put(APP_SHELL_KEY, resp.clone());
                     await shellCache.put(req, resp.clone());
                 }
                 return resp;
             } catch (err) {
-                // Offline / no network: serve the full cached POS app shell!
+                // Offline / timeout: serve the full cached POS app shell!
                 const cachedPage = await shellCache.match(req);
                 if (cachedPage) return cachedPage;
 
