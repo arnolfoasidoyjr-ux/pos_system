@@ -14911,7 +14911,7 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
                         </div>
                     </div>
 
-                    <?php if ($currentUser['role'] === 'owner'): ?>
+                    <?php if (($currentUser['role'] ?? '') === 'owner'): ?>
                         <div class="card" style="margin-bottom:16px;">
                             <div class="card-title collapse-toggle" onclick="toggleCollapseCard('users-wrap', this)" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;">
                                 <span>User Accounts</span><span class="collapse-chevron">▾</span>
@@ -14937,7 +14937,7 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
                         </div>
                     <?php endif; ?>
 
-                    <?php if ($currentUser['role'] === 'owner'): ?>
+                    <?php if (($currentUser['role'] ?? '') === 'owner'): ?>
                         <!-- CASHIER SHIFT MONITOR — owner-only, shown LAST on the page. Who's clocked
        in right now, what SHOULD be in their drawer, and a shortage/overage
        track record per cashier. -->
