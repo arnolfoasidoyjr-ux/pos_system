@@ -8851,12 +8851,12 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
             background: rgba(46, 204, 113, 0.22);
         }
         .network-pill.offline {
-            background: rgba(243, 156, 18, 0.18);
-            color: #f39c12;
-            border: 1px solid rgba(243, 156, 18, 0.45);
+            background: rgba(231, 76, 60, 0.18);
+            color: #e74c3c;
+            border: 1px solid rgba(231, 76, 60, 0.45);
         }
         .network-pill.offline:hover {
-            background: rgba(243, 156, 18, 0.28);
+            background: rgba(231, 76, 60, 0.28);
         }
         .network-pill.syncing {
             background: rgba(52, 152, 219, 0.18);
@@ -11874,7 +11874,7 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
      light) and ☀️ (currently light, click for dark); state also
      controllable from Settings → Appearance. -->
             <div class="nav-right">
-                <div id="network-status-pill" class="network-pill online" onclick="handleNetworkPillClick()" title="Network connection status — tap to sync">🟢 Online</div>
+                <div id="network-status-pill" class="network-pill online" onclick="handleNetworkPillClick()" title="Network connection status — tap to sync">🟢</div>
                 <button type="button" id="theme-toggle-btn" class="nav-link" style="padding:6px 9px;" title="Switch to light mode" onclick="toggleTheme()">🌙</button>
                 <span class="nav-user-name" title="<?= htmlspecialchars($currentUser['full_name']) ?>"><?= htmlspecialchars($currentUser['full_name']) ?></span>
                 <?php if ($isCashierRole): ?>
@@ -15420,19 +15420,19 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
                 if (pill) {
                     if (typeof _flushingPendingSales !== 'undefined' && _flushingPendingSales) {
                         pill.className = 'network-pill syncing';
-                        pill.innerHTML = '🔄 Syncing...';
+                        pill.innerHTML = '🔄';
                         pill.title = 'Syncing offline data with server...';
                     } else if (!isOnline) {
                         pill.className = 'network-pill offline';
-                        pill.innerHTML = '🟡 Offline' + (pending > 0 ? ' (' + pending + ')' : '');
+                        pill.innerHTML = '🔴' + (pending > 0 ? ' (' + pending + ')' : '');
                         pill.title = 'Working in Offline Mode. Tap to retry connection or sync.';
                     } else if (pending > 0) {
                         pill.className = 'network-pill offline';
-                        pill.innerHTML = '🟡 ' + pending + ' to sync';
+                        pill.innerHTML = '🔴 ' + pending;
                         pill.title = pending + ' offline item(s) waiting to sync. Tap to sync now.';
                     } else {
                         pill.className = 'network-pill online';
-                        pill.innerHTML = '🟢 Online';
+                        pill.innerHTML = '🟢';
                         pill.title = 'Connected to server. All data synced.';
                     }
                 }

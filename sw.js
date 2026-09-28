@@ -1,10 +1,10 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// POS SERVICE WORKER — FULL OFFLINE PWA ENGINE (v19)
+// POS SERVICE WORKER — FULL OFFLINE PWA ENGINE (v20)
 // Caches complete application shell, UI, icons, scripts & assets so the POS
 // works seamlessly with 100% functionality even when offline/no-network.
 // ═══════════════════════════════════════════════════════════════════════════
 
-const SHELL = 'pos-shell-v19';
+const SHELL = 'pos-shell-v20';
 const IMGS = 'pos-img-v3';
 const IMG_LIMIT = 500;
 const BASE = new URL('./', self.location).href;
@@ -161,7 +161,7 @@ self.addEventListener('fetch', e => {
     // Dynamic API requests (?api=...) - fast timeout failover so client IndexedDB answers instantly
     if (url.searchParams.has('api')) {
         e.respondWith(
-            fetchWithTimeout(req, 2800).catch(() => {
+            fetchWithTimeout(req, 12000).catch(() => {
                 return new Response(JSON.stringify({ success: false, offline: true, error: 'Offline - server unreachable' }), {
                     status: 200,
                     headers: { 'Content-Type': 'application/json' }
