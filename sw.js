@@ -1,10 +1,10 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// POS SERVICE WORKER — FULL OFFLINE PWA ENGINE (v20)
+// POS SERVICE WORKER — FULL OFFLINE PWA ENGINE (v21)
 // Caches complete application shell, UI, icons, scripts & assets so the POS
 // works seamlessly with 100% functionality even when offline/no-network.
 // ═══════════════════════════════════════════════════════════════════════════
 
-const SHELL = 'pos-shell-v20';
+const SHELL = 'pos-shell-v21';
 const IMGS = 'pos-img-v3';
 const IMG_LIMIT = 500;
 const BASE = new URL('./', self.location).href;
@@ -26,6 +26,7 @@ const PRECACHE_ASSETS = [
     'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js',
     'https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js',
     'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/bcryptjs/2.4.3/bcrypt.min.js',
     'https://cdn.jsdelivr.net/npm/qz-tray@2.2.6/qz-tray.js'
 ];
 

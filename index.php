@@ -2568,6 +2568,20 @@ if (isset($_GET['api'])) {
     //      can be root-caused even if the frontend message is generic.
     try {
         switch ($action) {
+            case 'get_users_offline':
+                $stmt = $db->prepare("SELECT id, username, full_name, role, password, email FROM users WHERE store_id = ?");
+                $stmt->execute([currentStoreId()]);
+                json(true, $stmt->fetchAll(PDO::FETCH_ASSOC));
+                break;
+            case 'sync_pending_users':
+                if ($role !== 'owner') json(false, null, 'Unauthorized');
+                $users = $body['users'] ?? [];
+                foreach ($users as $u) {
+                    $stmt = $db->prepare("INSERT INTO users (username, password, full_name, role, email, store_id) VALUES (?, ?, ?, ?, ?, ?)");
+                    $stmt->execute([$u['username'], $u['password'], $u['full_name'], $u['role'], $u['email'], currentStoreId()]);
+                }
+                json(true, ['ok' => true]);
+                break;
 
             case 'get_products':
                 // image_data (base64, often 50-150KB EACH) used to be embedded for
@@ -8792,6 +8806,8 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
     <!-- SheetJS — builds .xlsx files client-side for the Warehouse/History Excel export buttons -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- bcryptjs — offline password hashing & verification for offline login/signup via IndexedDB -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bcryptjs/2.4.3/bcrypt.min.js"></script>
     <!-- QZ Tray — local desktop bridge that lets this page send raw ESC/POS
      commands to a real printer (e.g. a cash-drawer kick pulse). Requires
      QZ Tray to be installed and running on the till's own PC; if it isn't,
@@ -11846,6 +11862,7 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
         btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
     }
 </script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/bcryptjs/2.4.3/bcrypt.min.js"></script>
 </head>
 <body<?= $showShiftLockOnLoad ? ' class="shift-locked"' : '' ?>>
     <?php if (!$isAuthPage): ?>
@@ -15212,7 +15229,7 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
             function prodImgUrl(id, v) {
                 return '?api=get_product_image&id=' + id + (v ? '&v=' + encodeURIComponent(v) : '');
             }
-            const USER_ROLE = '<?= htmlspecialchars($currentUser['role'] ?? '') ?>';
+            let USER_ROLE = '<?= htmlspecialchars($currentUser['role'] ?? '') ?>';
             // Mirrors $storeSettings['shop_name'] server-side so printed receipts show
             // whatever the owner actually named their shop, instead of a hardcoded brand.
             const SHOP_NAME = <?= json_encode($storeSettings['shop_name']) ?>;
@@ -15233,17 +15250,17 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
             // there (see saveDrawerConfig()), these are just the page-load values.
             let QZ_DRAWER_ENABLED = <?= json_encode(!empty($storeSettings['qz_drawer_enabled'])) ?>;
             let QZ_DRAWER_PRINTER = <?= json_encode($storeSettings['qz_drawer_printer'] ?? '') ?>;
-            const CASHIER_NAME = <?= json_encode($currentUser['full_name'] ?? '') ?>;
+            let CASHIER_NAME = <?= json_encode($currentUser['full_name'] ?? '') ?>;
             const SHOW_SHIFT_LOCK_ON_LOAD = <?= $showShiftLockOnLoad ? 'true' : 'false' ?>;
             const CURRENT_STORE_ID = <?= json_encode(currentStoreId()) ?>;
-            const CURRENT_USER_ID = <?= json_encode((int)($_SESSION['uid'] ?? 1)) ?>;
+            let CURRENT_USER_ID = <?= json_encode((int)($_SESSION['uid'] ?? 1)) ?>;
 
             // ══════════════════════════════════════════════════
             //  FULLY OFFLINE INDEXEDDB ENGINE (PosIDB)
             // ══════════════════════════════════════════════════
             const PosIDB = (() => {
                 const DB_NAME = 'procast_pos_offline';
-                const DB_VERSION = 2;
+                const DB_VERSION = 3;
                 let _dbPromise = null;
 
                 function openDB() {
@@ -15254,9 +15271,13 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
                             const req = indexedDB.open(DB_NAME, DB_VERSION);
                             req.onupgradeneeded = (e) => {
                                 const db = e.target.result;
-                                ['products', 'categories', 'settings', 'offline_orders', 'offline_mutations', 'auth_state'].forEach(st => {
+                                ['products', 'categories', 'settings', 'offline_orders', 'offline_mutations', 'auth_state', 'offline_users', 'pending_users'].forEach(st => {
                                     if (!db.objectStoreNames.contains(st)) {
-                                        const key = (st === 'settings' || st === 'auth_state') ? 'key' : (st === 'offline_orders' ? 'localRef' : (st === 'offline_mutations' ? 'localMutationId' : 'id'));
+                                        let key = 'id';
+                                        if (st === 'settings' || st === 'auth_state') key = 'key';
+                                        else if (st === 'offline_orders') key = 'localRef';
+                                        else if (st === 'offline_mutations') key = 'localMutationId';
+                                        else if (st === 'offline_users' || st === 'pending_users') key = 'username';
                                         db.createObjectStore(st, { keyPath: key });
                                     }
                                 });
@@ -15379,6 +15400,40 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
             let _isServerReachable = navigator.onLine !== false;
             let _heartbeatChecking = false;
 
+            async function syncOfflineUsers() {
+                if (!navigator.onLine || !_isServerReachable) return;
+                try {
+                    const res = await fetch(API_BASE + 'get_users_offline', { cache: 'no-store' });
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data.success && data.data) {
+                            await PosIDB.clearStore('offline_users');
+                            data.data.forEach(u => PosIDB.setItem('offline_users', u));
+                        }
+                    }
+                } catch (e) {}
+            }
+
+            async function syncPendingUsers() {
+                if (!navigator.onLine || !_isServerReachable) return;
+                try {
+                    const users = await PosIDB.getAll('pending_users');
+                    if (users && users.length > 0) {
+                        const res = await fetch(API_BASE + 'sync_pending_users', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF_TOKEN },
+                            body: JSON.stringify({ users })
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            if (data.success) {
+                                users.forEach(u => PosIDB.deleteItem('pending_users', u.username));
+                                await syncOfflineUsers();
+                            }
+                        }
+                    }
+                } catch (e) {}
+            }
             async function checkNetworkHeartbeat() {
                 if (navigator.onLine === false) {
                     _isServerReachable = false;
@@ -17141,6 +17196,10 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
             let _flushingPendingSales = false;
             async function flushPendingSales() {
                 if (_flushingPendingSales) return;
+                
+                await syncPendingUsers();
+                await syncOfflineUsers();
+                
                 let list = pendingSalesList();
                 if (!list.length && typeof PosIDB !== 'undefined') {
                     try {
@@ -25784,6 +25843,95 @@ $seoImage = (!empty($storeSettings['shop_logo']) && strpos($storeSettings['shop_
             }
 
             document.addEventListener('DOMContentLoaded', function() {
+                // Offline Auth Interceptor
+                const offlineUser = localStorage.getItem('offlineUser');
+                if (offlineUser && navigator.onLine === false) {
+                    try {
+                        const u = JSON.parse(offlineUser);
+                        USER_ROLE = u.role;
+                        CASHIER_NAME = u.full_name;
+                        CURRENT_USER_ID = u.id || 1;
+                        document.querySelectorAll('.nav-user-name').forEach(el => {
+                            el.textContent = u.full_name;
+                            el.title = u.full_name;
+                        });
+                        if (u.role !== 'owner') {
+                            document.querySelectorAll('.owner-only, [data-role="owner"]').forEach(el => el.style.display = 'none');
+                        }
+                    } catch (e) {}
+                }
+
+                const loginForm = document.querySelector('form[action="?page=login"]');
+                if (loginForm) {
+                    loginForm.addEventListener('submit', async (e) => {
+                        if (navigator.onLine === false) {
+                            e.preventDefault();
+                            const username = loginForm.querySelector('[name="username"]').value.trim();
+                            const password = loginForm.querySelector('[name="password"]').value;
+
+                            let user = await PosIDB.getItem('offline_users', username) || await PosIDB.getItem('pending_users', username);
+                            if (user) {
+                                const bcrypt = (window.dcodeIO && window.dcodeIO.bcrypt) || window.bcrypt || null;
+                                if (bcrypt) {
+                                    if (bcrypt.compareSync(password, user.password)) {
+                                        localStorage.setItem('offlineUser', JSON.stringify({ id: user.id || 'offline', username: user.username, full_name: user.full_name, role: user.role }));
+                                        window.location.href = '?page=dashboard';
+                                    } else {
+                                        if (typeof toast === 'function') toast('Incorrect password (Offline mode).', 'error');
+                                        else alert('Incorrect password (Offline mode).');
+                                    }
+                                } else {
+                                    alert('Offline authentication library not loaded. Please reload and try again.');
+                                }
+                            } else {
+                                if (typeof toast === 'function') toast('User not found in offline cache. Please connect to the internet and log in at least once.', 'error');
+                                else alert('User not found in offline cache. Please connect to the internet and log in at least once.');
+                            }
+                        }
+                    });
+                }
+
+                const signupForm = document.querySelector('form[action="?page=signup"]');
+                if (signupForm) {
+                    signupForm.addEventListener('submit', async (e) => {
+                        if (navigator.onLine === false) {
+                            e.preventDefault();
+                            const username = signupForm.querySelector('[name="username"]').value.trim();
+                            const password = signupForm.querySelector('[name="password"]').value;
+                            const confirmPw = signupForm.querySelector('[name="confirm_password"]') ? signupForm.querySelector('[name="confirm_password"]').value : password;
+                            const fullName = signupForm.querySelector('[name="full_name"]').value.trim();
+                            const email = (signupForm.querySelector('[name="email"]') || {}).value || '';
+
+                            if (!username || !password || !fullName) {
+                                if (typeof toast === 'function') toast('Please fill in all required fields.', 'error');
+                                else alert('Please fill in all required fields.');
+                                return;
+                            }
+                            if (password !== confirmPw) {
+                                if (typeof toast === 'function') toast('Passwords do not match.', 'error');
+                                else alert('Passwords do not match.');
+                                return;
+                            }
+                            if (password.length < 6) {
+                                if (typeof toast === 'function') toast('Password must be at least 6 characters.', 'error');
+                                else alert('Password must be at least 6 characters.');
+                                return;
+                            }
+
+                            const bcrypt = (window.dcodeIO && window.dcodeIO.bcrypt) || window.bcrypt || null;
+                            if (bcrypt) {
+                                const hash = bcrypt.hashSync(password, 10);
+                                const newUser = { username, password: hash, full_name: fullName, email, role: 'owner' };
+                                await PosIDB.setItem('pending_users', newUser);
+                                localStorage.setItem('offlineUser', JSON.stringify({ id: 'offline', username, full_name: fullName, role: 'owner' }));
+                                window.location.href = '?page=dashboard';
+                            } else {
+                                alert('Offline signup library not loaded. Please reload and try again.');
+                            }
+                        }
+                    });
+                }
+
                 dashInit();
                 prodsInit();
                 salesInit();
